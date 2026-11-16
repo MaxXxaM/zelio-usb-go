@@ -1,0 +1,11 @@
+/bin/
+/.deps/
+/config.json
+/.env
+*.local.json
+*.pcap
+*.pcapng
+*.zm2
+*.pem
+*.key
+.DS_Store

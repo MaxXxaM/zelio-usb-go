@@ -1,0 +1,22 @@
+[Unit]
+Description=Zelio Logic MQTT bridge (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zelio
+Group=zelio
+EnvironmentFile=-/etc/zelio/%i.env
+ExecStart=/usr/local/bin/zelio serve --config /etc/zelio/%i.json
+# A service restart rearms any explicitly configured force control.
+Restart=no
+TimeoutStopSec=25s
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

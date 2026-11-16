@@ -1,0 +1,52 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+          - runner: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libusb-1.0-0-dev pkg-config mosquitto
+          mosquitto -p 18883 -d
+          echo ZELIO_TEST_BROKER=127.0.0.1:18883 >> "$GITHUB_ENV"
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install libusb pkgconf
+      - name: Verify native build and test
+        run: |
+          test "$(go env GOARCH)" = arm64
+          go mod verify
+          go vet ./...
+          go test -race -count=1 ./...
+          go build -trimpath -o bin/zelio ./cmd/zelio
+          bin/zelio validate --config config.example.json
+          file bin/zelio
+      - uses: actions/upload-artifact@v6
+        with:
+          name: zelio-${{ matrix.platform }}
+          path: bin/zelio
+          if-no-files-found: error

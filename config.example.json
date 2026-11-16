@@ -1,0 +1,26 @@
+{
+  "device_id": "bench_relay",
+  "device_name": "Bench Relay",
+  "cable_serial": "REPLACE_WITH_CABLE_SERIAL",
+  "poll_interval": "2s",
+  "io_timeout": "1s",
+  "retry_delay": "3s",
+  "mqtt": {
+    "url": "mqtts://mqtt.example.com:8883",
+    "discovery_prefix": "homeassistant",
+    "username_env": "ZELIO_MQTT_USERNAME",
+    "password_env": "ZELIO_MQTT_PASSWORD"
+  },
+  "channels": [
+    {
+      "id": "example_input",
+      "name": "Example Input",
+      "label": "I1"
+    },
+    {
+      "id": "example_output",
+      "name": "Example Output",
+      "label": "Q1"
+    }
+  ]
+}

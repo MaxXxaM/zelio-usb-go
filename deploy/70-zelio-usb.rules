@@ -1,0 +1,2 @@
+# Schneider Electric SR2USB01. The application checks bcdDevice separately.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="16de", ATTR{idProduct}=="0084", MODE="0660", GROUP="zelio"
