@@ -94,7 +94,7 @@ publication to the intended controller account.
 | `zelio/<device>/<channel>/availability` | Retained `online` or `offline` for the logical reading. |
 | `zelio/<device>/<channel>/control` | Retained `online` or `offline` for an armed switch. |
 | `zelio/<device>/availability` | Retained `online/<session token>`, with an `offline` Last Will. |
-| `zelio/<device>/command/<session token>/<channel>` | Live `ON` or `OFF` for an explicitly enabled Q1. Read the active topic from discovery. |
+| `zelio/<device>/command/<session token>/<channel>` | Live `ON` or `OFF` for an explicitly enabled control binding. Read the active topic from discovery. |
 
 The bridge uses a clean session with expiry zero and rotates command topics
 on every connection. MQTT 5 retain handling suppresses delivery of previously
@@ -125,8 +125,8 @@ the entity from Home Assistant.
 | USB claim busy | Stop other software using the interface and check driver ownership. |
 | `probe` works, but PLC reads time out | `probe` reads the cable registers. Check the PLC-side connection, RUN and the configured timeout. |
 | I/O unavailable | Select the PLC's RUN I/O page. Some other pages use the same read address. |
-| Q1 switch unavailable after reconnect | Read the logical state topic. Check the exact PLC and force state before restarting to restore control. |
-| Command outcome uncertain | Inspect the current logical I/O and the force state in Zelio Soft before further commands. |
+| Controlled switch unavailable after reconnect | Read the logical state topic. Verify the cable still connects to the intended PLC before restarting the bridge. For legacy Q1 control, check any held force. |
+| Command outcome uncertain | Inspect the affected outputs before further commands. With legacy force control, also inspect the force state in Zelio Soft. |
 
 `uart-check` configures the cable UART and toggles DTR/RTS as requested. It
 sends zero UART bytes to the PLC. Treat diagnostic output containing serials

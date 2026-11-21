@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 )
 
@@ -29,6 +30,9 @@ type Options struct {
 	// AllowMonitoringWrites asserts that the operator has verified Q1 = 0x2A
 	// on this exact PLC program and accepts force-and-maintain behavior.
 	AllowMonitoringWrites bool
+	// MomentarySignals lists the signal IDs verified on the installed FBD.
+	// An empty list disables live momentary writes and initialization.
+	MomentarySignals []uint8
 }
 type Client struct {
 	transport     Transport
@@ -47,6 +51,10 @@ func NewClient(t Transport, opts Options) (*Client, error) {
 	if opts.Timeout == 0 {
 		opts.Timeout = time.Second
 	}
+	if slices.Contains(opts.MomentarySignals, 0) {
+		return nil, fmt.Errorf("%w: momentary signal ID must be nonzero", ErrUnverifiedWrite)
+	}
+	opts.MomentarySignals = slices.Clone(opts.MomentarySignals)
 	c := &Client{transport: t, options: opts, gate: make(chan struct{}, 1)}
 	c.gate <- struct{}{}
 	return c, nil

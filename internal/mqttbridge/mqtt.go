@@ -149,7 +149,7 @@ func session(parent context.Context, b broker, cfg config.File, open bridge.Open
 	topics := make(map[string]string)
 	var subs []paho.SubscribeOptions
 	for _, binding := range cfg.Channels {
-		if *arm && binding.CanForce() {
+		if *arm && binding.CanControl() {
 			topic := commandTopic(cfg.DeviceID, nonce, binding.ID)
 			topics[topic] = binding.ID
 			subs = append(subs, paho.SubscribeOptions{
@@ -237,7 +237,7 @@ func session(parent context.Context, b broker, cfg config.File, open bridge.Open
 	initial := make([]bridge.State, 0, len(cfg.Channels))
 	for _, binding := range cfg.Channels {
 		initial = append(initial, bridge.State{ID: binding.ID})
-		sink.controls[binding.ID] = binding.CanForce()
+		sink.controls[binding.ID] = binding.CanControl()
 	}
 	if err := sink.report(ctx, initial); err != nil {
 		return err
@@ -272,7 +272,7 @@ func session(parent context.Context, b broker, cfg config.File, open bridge.Open
 	}
 	if parent.Err() == nil {
 		if settings.ControlArmed {
-			log.Warn("Q1 control disarmed; verify the PLC connection before restarting")
+			log.Warn("PLC control disarmed; verify the PLC connection before restarting")
 		}
 		return errors.New("broker disconnected")
 	}

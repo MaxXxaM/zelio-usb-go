@@ -29,6 +29,7 @@ const help = `Usage: zelio COMMAND [OPTIONS]
   probe --serial SERIAL
   uart-check --serial SERIAL
   monitor-io --serial SERIAL
+  monitor-status --serial SERIAL
   monitor-raw --serial SERIAL
   read-sl --serial SERIAL --word 25 [--count 1]
   validate --config FILE
@@ -100,7 +101,16 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			if err != nil {
 				return nil, err
 			}
-			return client(wire, cfg.Timeout(), cfg.HasControl())
+			options := zelio.Options{Timeout: cfg.Timeout()}
+			for _, binding := range cfg.Channels {
+				if binding.CanForce() {
+					options.AllowMonitoringWrites = true
+				}
+				if binding.CanMomentary() {
+					options.MomentarySignals = append(options.MomentarySignals, binding.SignalID)
+				}
+			}
+			return client(wire, options)
 		}
 		return mqttbridge.Run(ctx, cfg, open, slog.Default())
 	case "encode-sl-write":
@@ -153,7 +163,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 		return output(out, result)
-	case "uart-check", "monitor-io", "monitor-raw", "read-sl", "force-q1", "release-q1":
+	case "uart-check", "monitor-io", "monitor-status", "monitor-raw", "read-sl", "force-q1", "release-q1":
 		return uartCommand(ctx, command, fs, parse, out)
 	default:
 		return fmt.Errorf("unknown command %q", command)
@@ -222,7 +232,7 @@ func uartCommand(ctx context.Context, command string, fs *flag.FlagSet, parse fu
 		}
 		return output(out, map[string]any{"baud": 115200, "format": "7E1", "dtr": *dtr, "rts": *rts, "status": status, "plc_bytes_sent": 0})
 	}
-	c, err := client(wire, *timeout, control)
+	c, err := client(wire, zelio.Options{Timeout: *timeout, AllowMonitoringWrites: control})
 	if err != nil {
 		return err
 	}
@@ -234,6 +244,12 @@ func uartCommand(ctx context.Context, command string, fs *flag.FlagSet, parse fu
 			return err
 		}
 		return output(out, io)
+	case "monitor-status":
+		status, err := c.ReadMonitoringStatus(ctx)
+		if err != nil {
+			return err
+		}
+		return output(out, map[string]any{"status_hex": hex.EncodeToString(status[:])})
 	case "monitor-raw":
 		data, err := c.ReadMonitoringRawFBD(ctx)
 		if err != nil {
@@ -254,8 +270,8 @@ func uartCommand(ctx context.Context, command string, fs *flag.FlagSet, parse fu
 	}
 }
 
-func client(wire zelio.Transport, timeout time.Duration, control bool) (*zelio.Client, error) {
-	c, err := zelio.NewClient(wire, zelio.Options{Timeout: timeout, AllowMonitoringWrites: control})
+func client(wire zelio.Transport, options zelio.Options) (*zelio.Client, error) {
+	c, err := zelio.NewClient(wire, options)
 	if err != nil {
 		_ = wire.Close()
 	}

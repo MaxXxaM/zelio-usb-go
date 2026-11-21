@@ -20,18 +20,19 @@ import (
 )
 
 type simulatedPLC struct {
-	on     atomic.Bool
-	blank  atomic.Bool
-	writes chan bool
+	on          atomic.Bool
+	blank       atomic.Bool
+	writes      chan bool
+	initialized atomic.Int32
 }
 
 func (p *simulatedPLC) ReadMonitoringIO(context.Context) (zelio.MonitoringIO, error) {
 	if p.blank.Load() {
-		return zelio.MonitoringIO{}, nil
+		return zelio.MonitoringIO{BlankDisplay: true}, nil
 	}
 	return zelio.MonitoringIO{
 		Available: true, Mode: "RUN",
-		Outputs: []zelio.DigitalPoint{{Label: "1", On: p.on.Load()}},
+		Outputs: []zelio.DigitalPoint{{Label: "1", On: p.on.Load()}, {Label: "A", On: p.on.Load()}, {Label: "B", On: p.on.Load()}},
 	}, nil
 }
 func (p *simulatedPLC) SendMonitoringForce(_ context.Context, _ uint8, _ zelio.MonitorForceKind, value bool) error {
@@ -40,10 +41,34 @@ func (p *simulatedPLC) SendMonitoringForce(_ context.Context, _ uint8, _ zelio.M
 	return nil
 }
 func (p *simulatedPLC) Close() error { return nil }
+func (p *simulatedPLC) EnsureMonitoring(context.Context) error {
+	p.initialized.Add(1)
+	return nil
+}
+func (p *simulatedPLC) SendMonitoringMomentary(_ context.Context, id uint8) error {
+	if id != 37 || p.initialized.Load() == 0 {
+		return fmt.Errorf("unexpected pulse %d without initialized Monitoring", id)
+	}
+	on := !p.on.Load()
+	p.on.Store(on)
+	p.writes <- on
+	return nil
+}
 
 // TestBridgeReconnectAndRetainedCommands requires a disposable MQTT 5 broker.
 // It exercises MQTT traffic and the real bridge loop with a simulated PLC.
 func TestBridgeReconnectAndRetainedCommands(t *testing.T) {
+	t.Run("legacy single output", func(t *testing.T) {
+		testBridgeReconnect(t, `{"id":"output","name":"Output","label":"Q1","control":"verified-q1-force-maintain"}`)
+	})
+	t.Run("verified momentary group", func(t *testing.T) {
+		testBridgeReconnect(t, `{"id":"output","name":"Output","labels":["QA","QB"],"control":"verified-momentary","signal_id":37}`)
+	})
+}
+
+func testBridgeReconnect(t *testing.T, binding string) {
+	t.Helper()
+
 	addr := os.Getenv("ZELIO_TEST_BROKER")
 	if addr == "" {
 		t.Skip("set ZELIO_TEST_BROKER to the host:port of a disposable MQTT 5 broker")
@@ -54,8 +79,8 @@ func TestBridgeReconnectAndRetainedCommands(t *testing.T) {
 	cfg, err := config.Decode(strings.NewReader(fmt.Sprintf(`{
 	    "device_id": %q, "device_name": "MQTT integration test", "cable_serial": "TEST-CABLE",
 	    "mqtt": {"url": %q},
-	    "channels": [{"id":"output","name":"Output","label":"Q1","control":"verified-q1-force-maintain"}]
-	}`, id, "mqtt://"+addr)))
+	    "channels": [%s]
+	}`, id, "mqtt://"+addr, binding)))
 	if err != nil {
 		t.Fatal(err)
 	}

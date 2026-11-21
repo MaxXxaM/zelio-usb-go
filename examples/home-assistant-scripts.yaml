@@ -1,0 +1,38 @@
+# Add under script: in configuration.yaml or in the included scripts.yaml.
+# Substitute entity IDs assigned by Home Assistant.
+zelio_evening_example:
+  alias: Zelio evening example
+  mode: single
+  sequence:
+    - condition: template
+      value_template: >
+        {{ has_value('switch.example_relay_tracks') and
+           has_value('switch.example_relay_pendant') }}
+    - if:
+        - condition: state
+          entity_id: switch.example_relay_tracks
+          state: "off"
+      then:
+        - action: switch.turn_on
+          target:
+            entity_id: switch.example_relay_tracks
+        - wait_template: "{{ is_state('switch.example_relay_tracks', 'on') }}"
+          timeout: "00:00:15"
+          continue_on_timeout: false
+        - delay:
+            milliseconds: 250
+    - if:
+        - condition: state
+          entity_id: switch.example_relay_pendant
+          state: "on"
+      then:
+        - action: switch.turn_off
+          target:
+            entity_id: switch.example_relay_pendant
+        - wait_template: "{{ is_state('switch.example_relay_pendant', 'off') }}"
+          timeout: "00:00:15"
+          continue_on_timeout: false
+    - condition: template
+      value_template: >
+        {{ is_state('switch.example_relay_tracks', 'on') and
+           is_state('switch.example_relay_pendant', 'off') }}

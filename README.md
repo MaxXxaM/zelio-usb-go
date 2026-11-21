@@ -1,15 +1,16 @@
 # Zelio USB for Go
 
 Read Schneider Electric Zelio Logic I/O through an SR2USB01 programming cable
-on Linux or macOS. The CLI provides USB diagnostics, and the MQTT 5 bridge
-publishes named logical states to Home Assistant. Monitoring runs alongside the
-PLC's existing program.
+on Linux or macOS. The MQTT 5 bridge publishes logical states to Home Assistant
+and can switch outputs through explicitly verified momentary FBD links.
+The CLI provides USB and Monitoring diagnostics.
 
 | Setup | Verified behavior |
 | --- | --- |
 | SR2USB01 `16de:0084`, device revision `0600`, with SR3B261FU + SR3XT141FU in RUN on macOS ARM64 | On one physical setup, the original Go driver read the front-panel I/O and SL OUT. Force OFF and Force ON for Q1 changed a real load. The bench sequence included a global release between the two forces and individual Release ON at the end. |
-| macOS ARM64 and Linux ARM64 | The public project builds and runs its software tests on both architectures. The MQTT path is tested against Mosquitto with a simulated PLC. |
-| Other programs, outputs, cable revisions and the Linux USB path | Hardware validation is pending. The Q1 signal ID depends on the exact PLC program. |
+| Raspberry Pi OS ARM64 with the same relay and cable | The Go transport read I/O and switched individual and grouped lights through momentary links. The bridge's newer MQTT integration is tested against Mosquitto with a simulated PLC. |
+| Monitoring initialization after a power interruption | Zelio Soft's initialization and a successful pulse were captured on hardware. The automated initialization has wire tests. Validation of the full Go path from a cold relay start is pending. |
+| Other relays, firmware and programs | Verify the device, RUN I/O layout and signal mapping for each installation. |
 
 ## Quick start
 
@@ -34,6 +35,7 @@ go build -o bin/zelio ./cmd/zelio
 bin/zelio list
 bin/zelio probe --serial SERIAL
 bin/zelio monitor-io --serial SERIAL
+bin/zelio monitor-status --serial SERIAL
 ```
 
 Use the cable serial from `list`. On Linux, apply the
@@ -66,6 +68,18 @@ or load operation requires independent feedback.
 Run one instance per PLC and cable, each with a unique device ID. See
 [installation and troubleshooting](docs/install.md) for Linux systemd,
 macOS setup, and how to remove retired MQTT entities.
+
+### Momentary control
+
+Use a verified FBD command link to switch a single output or a synchronized
+group while retaining the PLC's local control logic. The bridge checks the
+Monitoring status when a state change is needed, initializes it if required
+and issues at most one impulse. RUN I/O readback confirms the result.
+
+The [mapping guide](docs/momentary-control.md) walks through USBPcap
+recording, verification on physical loads, configuration and Home Assistant
+scripts. The [example config](examples/momentary.config.json) contains
+placeholder mappings that must be replaced before control is enabled.
 
 ### Experimental Q1 control
 
@@ -131,7 +145,9 @@ fmt.Printf("Q1 logical state: on=%t available=%t\n", on, available)
 
 A transport or frame error can desynchronize the session. Close the client and
 reopen the cable before reading again. A failed write can have an uncertain
-outcome. Check Q1 and the PLC's forces before deciding what to do next.
+outcome. Check the relevant outputs before issuing another command. For
+desired-state pulse control, configure `Options.MomentarySignals` with
+verified IDs and use `bridge.ActuateMomentary` while owning the session.
 
 ## Tests
 

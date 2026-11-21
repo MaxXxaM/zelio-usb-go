@@ -14,24 +14,51 @@ import (
 	zelio "github.com/MaxXxaM/zelio-usb-go"
 )
 
-const VerifiedQ1 = "verified-q1-force-maintain"
+const (
+	VerifiedQ1        = "verified-q1-force-maintain"
+	VerifiedMomentary = "verified-momentary"
+)
 
 var (
-	ErrUnavailable = errors.New("Q1 unavailable on the RUN I/O page")
-	ErrUnconfirmed = errors.New("Q1 readback did not confirm the requested state")
+	ErrUnavailable = errors.New("output state unavailable on the RUN I/O page")
+	ErrUnconfirmed = errors.New("output readback did not confirm the requested state")
 	tokenPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,47}$`)
 )
 
 // Binding gives a front-panel label a stable application identifier and name.
 // The optional Control value asserts verification on the exact PLC program.
 type Binding struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Label   string `json:"label"`
-	Control string `json:"control,omitempty"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Label     string   `json:"label,omitempty"`
+	Labels    []string `json:"labels,omitempty"`
+	Control   string   `json:"control,omitempty"`
+	SignalID  uint8    `json:"signal_id,omitempty"`
+	BlockWhen []string `json:"block_when,omitempty"`
 }
 
-func (b Binding) CanForce() bool { return b.Control == VerifiedQ1 && b.Label == "Q1" }
+func (b Binding) CanForce() bool     { return b.Control == VerifiedQ1 && b.Label == "Q1" }
+func (b Binding) CanMomentary() bool { return b.Control == VerifiedMomentary && b.SignalID != 0 }
+func (b Binding) CanControl() bool   { return b.CanForce() || b.CanMomentary() }
+
+func (b Binding) outputLabels() []string {
+	if len(b.Labels) > 0 {
+		return b.Labels
+	}
+	return []string{b.Label}
+}
+
+// Lookup returns a group's state only when all its members agree in RUN.
+func (b Binding) Lookup(snapshot zelio.MonitoringIO) (on, available bool) {
+	for i, label := range b.outputLabels() {
+		value, ok := snapshot.Lookup(label)
+		if !ok || (i > 0 && value != on) {
+			return false, false
+		}
+		on = value
+	}
+	return on, true
+}
 
 func ValidID(id string) bool { return tokenPattern.MatchString(id) }
 
@@ -40,20 +67,40 @@ func ValidateBindings(bindings []Binding) error {
 		return errors.New("at least one channel is required")
 	}
 	ids, labels := map[string]bool{}, map[string]bool{}
+	signals := map[uint8]bool{}
 	for _, b := range bindings {
 		if !ValidID(b.ID) || strings.TrimSpace(b.Name) == "" {
 			return fmt.Errorf("invalid channel id/name for %q", b.ID)
 		}
-		if !zelio.ValidMonitoringLabel(b.Label) {
-			return fmt.Errorf("channel %q: invalid front-panel label %q", b.ID, b.Label)
+		if ids[b.ID] || (b.Label != "" && len(b.Labels) > 0) {
+			return fmt.Errorf("channel %q: duplicate ID or both label and labels provided", b.ID)
 		}
-		if b.Control != "" && !b.CanForce() {
-			return fmt.Errorf("channel %q: only Q1 accepts control %q", b.ID, VerifiedQ1)
+		if b.Control != "" && !b.CanControl() {
+			return fmt.Errorf("channel %q: invalid control or missing verified signal ID", b.ID)
 		}
-		if ids[b.ID] || labels[b.Label] {
-			return fmt.Errorf("duplicate channel id or label: %q, %q", b.ID, b.Label)
+		if !b.CanMomentary() && (len(b.Labels) > 0 || b.SignalID != 0 || len(b.BlockWhen) > 0) {
+			return fmt.Errorf("channel %q: labels, signal_id and block_when require %q", b.ID, VerifiedMomentary)
 		}
-		ids[b.ID], labels[b.Label] = true, true
+		for _, label := range b.outputLabels() {
+			if !zelio.ValidMonitoringLabel(label) || (b.CanMomentary() && label[0] != 'Q') || labels[label] {
+				return fmt.Errorf("channel %q: invalid or duplicate label %q", b.ID, label)
+			}
+			labels[label] = true
+		}
+		inputs := map[string]bool{}
+		for _, label := range b.BlockWhen {
+			if !zelio.ValidMonitoringLabel(label) || label[0] != 'I' || inputs[label] {
+				return fmt.Errorf("channel %q: invalid or duplicate interlock input %q", b.ID, label)
+			}
+			inputs[label] = true
+		}
+		if b.CanMomentary() {
+			if signals[b.SignalID] {
+				return fmt.Errorf("channel %q: signal %d already belongs to another group", b.ID, b.SignalID)
+			}
+			signals[b.SignalID] = true
+		}
+		ids[b.ID] = true
 	}
 	return nil
 }
@@ -146,15 +193,17 @@ func Run(ctx context.Context, cfg Settings, open Open, commands <-chan Command, 
 		log = slog.Default()
 	}
 	armed := cfg.ControlArmed
-	writable := make(map[string]bool)
+	writable := make(map[string]Binding)
 	for _, b := range cfg.Bindings {
-		writable[b.ID] = b.CanForce()
+		if b.CanControl() {
+			writable[b.ID] = b
+		}
 	}
 	report := func(ctx context.Context, snapshot zelio.MonitoringIO) error {
 		values := make([]State, 0, len(cfg.Bindings))
 		for _, b := range cfg.Bindings {
-			on, ok := snapshot.Lookup(b.Label)
-			values = append(values, State{ID: b.ID, Available: ok, On: on, ControlReady: armed && b.CanForce() && ok})
+			on, ok := b.Lookup(snapshot)
+			values = append(values, State{ID: b.ID, Available: ok, On: on, ControlReady: armed && b.CanControl() && ok && !b.interlocked(snapshot)})
 		}
 		return publish(ctx, values)
 	}
@@ -181,7 +230,7 @@ func Run(ctx context.Context, cfg Settings, open Open, commands <-chan Command, 
 		log.Warn("PLC unavailable", "error", deviceErr)
 		if armed {
 			armed = false
-			log.Warn("Q1 control disarmed; verify the PLC connection before restarting")
+			log.Warn("PLC control disarmed; verify the PLC connection before restarting")
 		}
 		if err := report(ctx, zelio.MonitoringIO{}); err != nil {
 			return err
@@ -193,12 +242,27 @@ func Run(ctx context.Context, cfg Settings, open Open, commands <-chan Command, 
 	return nil
 }
 
-func poll(ctx context.Context, plc Device, interval time.Duration, commands <-chan Command, writable map[string]bool, armed bool, report func(context.Context, zelio.MonitoringIO) error, log *slog.Logger) (deviceErr, publishErr error) {
+func poll(ctx context.Context, plc Device, interval time.Duration, commands <-chan Command, writable map[string]Binding, armed bool, report func(context.Context, zelio.MonitoringIO) error, log *slog.Logger) (deviceErr, publishErr error) {
+	// The RUN I/O LCD returns an all-space frame during its periodic redraw.
+	// At normal polling rates, ignore up to two known redraw frames.
+	// At slower polling rates and on a different page, report immediately.
+	blankReads := 0
+	reportStable := func(snapshot zelio.MonitoringIO) error {
+		if !snapshot.BlankDisplay || interval > 2*time.Second {
+			blankReads = 0
+			return report(ctx, snapshot)
+		}
+		blankReads++
+		if blankReads >= 3 {
+			return report(ctx, snapshot)
+		}
+		return nil
+	}
 	snapshot, err := plc.ReadMonitoringIO(ctx)
 	if err != nil {
 		return err, nil
 	}
-	if err := report(ctx, snapshot); err != nil {
+	if err := reportStable(snapshot); err != nil {
 		return nil, err
 	}
 	tick := time.NewTicker(interval)
@@ -217,20 +281,29 @@ func poll(ctx context.Context, plc Device, interval time.Duration, commands <-ch
 				commands = nil
 				continue
 			}
-			if !armed || !writable[cmd.ID] {
+			binding, allowed := writable[cmd.ID]
+			if !armed || !allowed {
 				continue
 			}
-			snapshot, err = ActuateQ1(ctx, plc, zelio.MonitorForce, cmd.On)
+			if binding.CanMomentary() {
+				device, ok := plc.(MomentaryDevice)
+				if !ok {
+					return errors.New("PLC adapter lacks momentary control"), nil
+				}
+				snapshot, err = ActuateMomentary(ctx, device, binding, cmd.On)
+			} else {
+				snapshot, err = ActuateQ1(ctx, plc, zelio.MonitorForce, cmd.On)
+			}
 			if err != nil {
-				log.Warn("Q1 command was not confirmed", "channel", cmd.ID, "error", err)
-				// These two errors by themselves describe a valid display
+				log.Warn("PLC command was not confirmed", "channel", cmd.ID, "error", err)
+				// These errors by themselves describe a valid display
 				// read. Joined errors indicate an untrustworthy session.
-				if err != ErrUnavailable && err != ErrUnconfirmed {
+				if err != ErrUnavailable && err != ErrUnconfirmed && err != ErrInterlocked {
 					return err, nil
 				}
 			}
 		}
-		if err := report(ctx, snapshot); err != nil {
+		if err := reportStable(snapshot); err != nil {
 			return nil, err
 		}
 	}

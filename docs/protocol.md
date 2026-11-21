@@ -13,9 +13,17 @@ SR3XT141FU in RUN:
 
 | Region | Observed operation |
 | --- | --- |
+| `0x6B` | Reads a two-byte status. `81 00` was observed in RUN with pulse writes accepted but ineffective. `83 00` was observed with working pulse control. |
+| `0x6C` | The captured initialization write uses two bytes, `04 00`, followed by a successful ACK and later status `83 00`. |
 | `0x6F` | Reads the 78-byte front-panel page. The I/O layout carries a RUN marker and up to 24 I and 16 Q positions on the observed setup. Other screens may return unavailable. |
 | `0x70` | Reads 246 raw bytes of FBD data. Byte index 5, bit mask `0x04`, followed the tested Q1 in that program. The bridge uses the I/O page and does not derive a map from this byte. |
+| `0x78` | Writes a four-byte FBD pulse, `E0 <signal ID> 00 01`. The corresponding click has no release frame. |
 | `0x79` | Writes a 30-byte Monitoring force/release record. The write reply acknowledges the record. The logical result comes from a fresh I/O read. |
+
+The bridge gates the initialization by the observed status and a valid RUN
+snapshot. It checks the new status and output state before sending an
+impulse. Project transfer and global release take no part in this sequence.
+See the [mapping and recovery guide](momentary-control.md).
 
 ## Physical Q1 experiment
 
