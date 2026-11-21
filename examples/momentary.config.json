@@ -1,0 +1,29 @@
+{
+  "device_id": "example_relay",
+  "device_name": "Example Relay",
+  "cable_serial": "REPLACE_WITH_CABLE_SERIAL",
+  "mqtt": {
+    "url": "mqtts://mqtt.example.com:8883",
+    "username_env": "ZELIO_MQTT_USERNAME",
+    "password_env": "ZELIO_MQTT_PASSWORD"
+  },
+  "channels": [
+    {"id": "master_input", "name": "Master input", "label": "I1"},
+    {
+      "id": "pendant",
+      "name": "Pendant",
+      "label": "Q3",
+      "control": "verified-momentary",
+      "signal_id": 1,
+      "block_when": ["I1"]
+    },
+    {
+      "id": "tracks",
+      "name": "Tracks",
+      "labels": ["QA", "QB"],
+      "control": "verified-momentary",
+      "signal_id": 2,
+      "block_when": ["I1"]
+    }
+  ]
+}

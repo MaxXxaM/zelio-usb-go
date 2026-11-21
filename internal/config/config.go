@@ -46,7 +46,7 @@ func (f File) Settings() bridge.Settings {
 
 func (f File) HasControl() bool {
 	for _, b := range f.Channels {
-		if b.CanForce() {
+		if b.CanControl() {
 			return true
 		}
 	}

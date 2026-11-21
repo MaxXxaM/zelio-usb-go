@@ -21,20 +21,84 @@ func runIO(on bool) zelio.MonitoringIO {
 }
 
 type fakePLC struct {
-	reads    []zelio.MonitoringIO
-	readErr  error
-	writeErr error
-	events   []string
+	reads     []zelio.MonitoringIO
+	readErr   error
+	writeErr  error
+	events    []string
+	afterRead func(int)
 }
 
 func (p *fakePLC) ReadMonitoringIO(context.Context) (zelio.MonitoringIO, error) {
 	p.events = append(p.events, "read")
+	defer func() {
+		if p.afterRead != nil {
+			p.afterRead(len(p.events))
+		}
+	}()
 	if len(p.reads) == 0 {
 		return zelio.MonitoringIO{}, p.readErr
 	}
 	state := p.reads[0]
 	p.reads = p.reads[1:]
 	return state, nil
+}
+
+func TestPollKeepsStateAcrossOneBlankLCDFrame(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &fakePLC{reads: []zelio.MonitoringIO{runIO(false), {BlankDisplay: true}, runIO(false), runIO(false)}}
+	p.afterRead = func(n int) {
+		if n == 4 {
+			cancel()
+		}
+	}
+	var got []bool
+	report := func(_ context.Context, io zelio.MonitoringIO) error {
+		got = append(got, io.Available)
+		return nil
+	}
+	deviceErr, publishErr := poll(ctx, p, time.Millisecond, nil, nil, false, report, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if deviceErr != nil || publishErr != nil || !reflect.DeepEqual(got, []bool{true, true, true}) {
+		t.Fatalf("reports %v, device error %v, publish error %v", got, deviceErr, publishErr)
+	}
+}
+
+func TestPollReportsPersistentBlankLCDFrames(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &fakePLC{reads: []zelio.MonitoringIO{runIO(false), {BlankDisplay: true}, {BlankDisplay: true}, {BlankDisplay: true}}}
+	p.afterRead = func(n int) {
+		if n == 4 {
+			cancel()
+		}
+	}
+	var got []bool
+	report := func(_ context.Context, io zelio.MonitoringIO) error {
+		got = append(got, io.Available)
+		return nil
+	}
+	deviceErr, publishErr := poll(ctx, p, time.Millisecond, nil, nil, false, report, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if deviceErr != nil || publishErr != nil || !reflect.DeepEqual(got, []bool{true, false}) {
+		t.Fatalf("reports %v, device error %v, publish error %v", got, deviceErr, publishErr)
+	}
+}
+
+func TestPollReportsNonIOPageImmediately(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &fakePLC{reads: []zelio.MonitoringIO{runIO(false), {}}}
+	p.afterRead = func(n int) {
+		if n == 2 {
+			cancel()
+		}
+	}
+	var got []bool
+	report := func(_ context.Context, io zelio.MonitoringIO) error {
+		got = append(got, io.Available)
+		return nil
+	}
+	deviceErr, publishErr := poll(ctx, p, time.Millisecond, nil, nil, false, report, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if deviceErr != nil || publishErr != nil || !reflect.DeepEqual(got, []bool{true, false}) {
+		t.Fatalf("reports %v, device error %v, publish error %v", got, deviceErr, publishErr)
+	}
 }
 func (p *fakePLC) SendMonitoringForce(_ context.Context, id uint8, kind zelio.MonitorForceKind, on bool) error {
 	if id != 0x2a || kind != zelio.MonitorForce || !on {

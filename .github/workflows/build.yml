@@ -44,6 +44,7 @@ jobs:
           go test -race -count=1 ./...
           go build -trimpath -o bin/zelio ./cmd/zelio
           bin/zelio validate --config config.example.json
+          bin/zelio validate --config examples/momentary.config.json
           file bin/zelio
       - uses: actions/upload-artifact@v6
         with:

@@ -127,6 +127,9 @@ type DigitalPoint struct {
 // MonitoringIO is a single front-panel display snapshot. Available=false
 // means the PLC LCD was showing another page; it must not be treated as OFF.
 type MonitoringIO struct {
+	// BlankDisplay marks the all-space I/O fields seen during an LCD redraw.
+	BlankDisplay bool `json:"-"`
+
 	Available bool           `json:"available"`
 	Mode      string         `json:"mode,omitempty"`
 	Inputs    []DigitalPoint `json:"inputs,omitempty"`
@@ -168,6 +171,11 @@ func ParseMonitoringIO(frame []byte) (MonitoringIO, error) {
 		return MonitoringIO{}, err
 	}
 	result := MonitoringIO{}
+	if strings.Trim(string(data[:len(monitorInputLabels)]), " ") == "" &&
+		strings.Trim(string(data[54:54+len(monitorOutputLabels)]), " ") == "" {
+		result.BlankDisplay = true
+		return result, nil
+	}
 	for i, label := range []byte(monitorInputLabels) {
 		if data[i] != label && data[i]&0x80 == 0 {
 			return result, nil

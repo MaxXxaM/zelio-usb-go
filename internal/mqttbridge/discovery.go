@@ -14,7 +14,7 @@ func commandTopic(device, nonce, id string) string {
 }
 
 func component(binding bridge.Binding) string {
-	if binding.CanForce() {
+	if binding.CanControl() {
 		return "switch"
 	}
 	return "binary_sensor"
@@ -33,7 +33,7 @@ func discovery(device, name, nonce string, binding bridge.Binding) map[string]an
 		},
 		{"topic": root + "/availability"},
 	}
-	if binding.CanForce() {
+	if binding.CanControl() {
 		availability = append(availability, map[string]string{"topic": root + "/control"})
 	}
 	cfg := map[string]any{
@@ -52,7 +52,7 @@ func discovery(device, name, nonce string, binding bridge.Binding) map[string]an
 			"model":        "Zelio Logic",
 		},
 	}
-	if binding.CanForce() {
+	if binding.CanControl() {
 		cfg["command_topic"] = commandTopic(device, nonce, binding.ID)
 		cfg["optimistic"] = false
 		cfg["retain"] = false

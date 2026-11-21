@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 // Write vectors reproduce the observed command bytes without device data.
@@ -81,7 +82,7 @@ func TestMonitoringDisplayBlankIsUnknown(t *testing.T) {
 	}
 	frame := monitoringEncode(append([]byte{1, 3, 78}, data...))
 	io, err := ParseMonitoringIO(frame)
-	if err != nil || io.Available || len(io.Outputs) != 0 {
+	if err != nil || io.Available || !io.BlankDisplay || len(io.Outputs) != 0 {
 		t.Fatalf("blank display must not mean all lights off: %+v %v", io, err)
 	}
 }
@@ -156,4 +157,90 @@ func TestMonitoringWriteTimeoutPoisonsSession(t *testing.T) {
 	if len(w.writes) != 1 {
 		t.Fatalf("writes: %d", len(w.writes))
 	}
+}
+
+func TestEnsureMonitoringStartsOnlyFromObservedInactiveRUN(t *testing.T) {
+	const (
+		statusQuery = ":010300006B00028F\r\n"
+		inactive    = ":010302810079\r\n"
+		active      = ":010302830077\r\n"
+		ioQuery     = ":010300006F004E3F\r\n"
+		initRequest = ":011000006C000204007D\r\n"
+		initAck     = ":011000006C000281\r\n"
+	)
+	for _, tc := range []struct {
+		name     string
+		replies  []string
+		writes   []string
+		canWrite bool
+		wantErr  error
+	}{
+		{"already active", []string{active}, []string{statusQuery}, true, nil},
+		{"cold start", []string{inactive, string(syntheticIO(false)), initAck, active, string(syntheticIO(false))},
+			[]string{statusQuery, ioQuery, initRequest, statusQuery, ioQuery}, true, nil},
+		{"one blank before initialization",
+			[]string{inactive, blankLCD(), string(syntheticIO(false)), initAck, active, string(syntheticIO(false))},
+			[]string{statusQuery, ioQuery, ioQuery, initRequest, statusQuery, ioQuery}, true, nil},
+		{"read only", []string{inactive}, []string{statusQuery}, false, ErrReadOnly},
+		{"unknown mode", []string{":01030280007A\r\n"}, []string{statusQuery}, true, ErrMonitoringNotReady},
+		{"no run display", []string{inactive, string(monitoringEncode(append([]byte{1, 3, 78}, make([]byte, 78)...)))},
+			[]string{statusQuery, ioQuery}, true, ErrMonitoringNotReady},
+		{"missing acknowledgement", []string{inactive, string(syntheticIO(false))},
+			[]string{statusQuery, ioQuery, initRequest}, true, ErrWriteUncertain},
+		{"output changed", []string{inactive, string(syntheticIO(false)), initAck, active, string(syntheticIO(true))},
+			[]string{statusQuery, ioQuery, initRequest, statusQuery, ioQuery}, true, ErrMonitoringNotReady},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &fakeWire{}
+			for _, frame := range tc.replies {
+				w.replies = append(w.replies, []byte(frame))
+			}
+			options := Options{Timeout: 30 * time.Millisecond, MomentarySignals: []uint8{0x22}}
+			if !tc.canWrite {
+				options.MomentarySignals = nil
+			}
+			c, err := NewClient(w, options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.EnsureMonitoring(context.Background()); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("got %v, want %v", err, tc.wantErr)
+			}
+			if len(w.writes) != len(tc.writes) {
+				t.Fatalf("sent %q, want %q", w.writes, tc.writes)
+			}
+			for i, want := range tc.writes {
+				if string(w.writes[i]) != want {
+					t.Fatalf("request %d: sent %q, want %q", i, w.writes[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestMomentaryAllowlistAndNoRetry(t *testing.T) {
+	w := &fakeWire{}
+	ids := []uint8{0x22}
+	c, err := NewClient(w, Options{Timeout: 30 * time.Millisecond, MomentarySignals: ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids[0] = 0x23
+	if err := c.SendMonitoringMomentary(context.Background(), 0x23); !errors.Is(err, ErrUnverifiedWrite) || len(w.writes) != 0 {
+		t.Fatalf("out-of-map write: %v; frames %q", err, w.writes)
+	}
+	if err := c.SendMonitoringMomentary(context.Background(), 0x22); !errors.Is(err, ErrWriteUncertain) {
+		t.Fatalf("expected uncertainty: %v", err)
+	}
+	if len(w.writes) != 1 || string(w.writes[0]) != ":01100000780004E022000170\r\n" {
+		t.Fatalf("unexpected command frames: %q", w.writes)
+	}
+}
+
+func blankLCD() string {
+	data := make([]byte, 78)
+	for i := range data {
+		data[i] = ' '
+	}
+	return string(monitoringEncode(append([]byte{1, 3, 78}, data...)))
 }
