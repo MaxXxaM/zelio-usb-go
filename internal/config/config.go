@@ -20,6 +20,7 @@ import (
 type File struct {
 	DeviceID     string           `json:"device_id"`
 	DeviceName   string           `json:"device_name"`
+	FBDSHA256    string           `json:"fbd_sha256,omitempty"`
 	CableSerial  string           `json:"cable_serial"`
 	MQTT         MQTT             `json:"mqtt"`
 	Channels     []bridge.Binding `json:"channels"`
@@ -91,6 +92,9 @@ func Decode(r io.Reader) (File, error) {
 		len(f.CableSerial) > 128 || strings.ContainsFunc(f.CableSerial, unicode.IsControl) {
 		return f, errors.New("cable_serial must be an explicit USB cable serial")
 	}
+	if f.FBDSHA256 != "" && !ValidProgramFingerprint(f.FBDSHA256) {
+		return f, errors.New("fbd_sha256 must contain 64 lowercase hexadecimal digits")
+	}
 	if err := bridge.ValidateBindings(f.Channels); err != nil {
 		return f, err
 	}
@@ -120,6 +124,12 @@ func Decode(r io.Reader) (File, error) {
 	}
 	f.retry, err = duration("retry_delay", f.RetryDelay, 3*time.Second, 2*time.Second, time.Minute)
 	return f, err
+}
+
+var programFingerprint = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+func ValidProgramFingerprint(value string) bool {
+	return programFingerprint.MatchString(value)
 }
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

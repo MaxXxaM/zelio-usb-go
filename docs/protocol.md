@@ -25,6 +25,20 @@ snapshot. It checks the new status and output state before sending an
 impulse. Project transfer and global release take no part in this sequence.
 See the [mapping and recovery guide](momentary-control.md).
 
+## Compiled FBD discovery
+
+`zelio discover` reads regions `0x00–0x0F` and `0x18–0x27` in 64-byte
+pages. Two complete passes must agree. The first image contains link
+records. The second contains the compiled record stream used to trace a
+link through FBD blocks to logical outputs. The SHA-256 covers both
+images in that order. It ties a configuration to that application image.
+
+The supported reader was checked against two SR3B261FU + SR3XT141FU FBD
+programs. Signals can use different IDs even on matching hardware.
+Discovery performs no PLC writes. A toggle candidate describes a limited
+static path. Review the corresponding I/O and test the load before
+leaving a control binding enabled. [Discovery guide](discover.md)
+
 ## Physical Q1 experiment
 
 The test on one FBD program sent **Force OFF**, **Release All**, **Force ON**

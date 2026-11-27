@@ -12,6 +12,10 @@ The CLI provides USB and Monitoring diagnostics.
 | Monitoring initialization after a power interruption | Zelio Soft's initialization and a successful pulse were captured on hardware. The automated initialization has wire tests. Validation of the full Go path from a cold relay start is pending. |
 | Other relays, firmware and programs | Verify the device, RUN I/O layout and signal mapping for each installation. |
 
+Discover the loaded FBD program and generate a Home Assistant MQTT draft over
+SR2USB01 with `zelio discover`. See the [English guide](docs/discover.md)
+or the [Russian guide](docs/discover.ru.md).
+
 ## Quick start
 
 Install **Go 1.24+**, a C compiler, `pkg-config` and libusb 1.0 for the host
