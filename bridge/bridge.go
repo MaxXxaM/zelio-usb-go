@@ -180,7 +180,7 @@ func ActuateQ1(ctx context.Context, plc Device, kind zelio.MonitorForceKind, on 
 // Run polls and, when a baseline exists, accepts commands for explicitly
 // writable bindings. After a transport error it closes the device, reports
 // unavailability, and opens a read-only session. It never resubmits a write.
-// Producers should use a nonblocking send on an unbuffered commands channel,
+// Producers should use an unbuffered commands channel with a bounded send,
 // so commands have no lifetime beyond the session that accepts them.
 func Run(ctx context.Context, cfg Settings, open Open, commands <-chan Command, publish Publish, log *slog.Logger) error {
 	if err := ValidateBindings(cfg.Bindings); err != nil {
@@ -242,21 +242,26 @@ func Run(ctx context.Context, cfg Settings, open Open, commands <-chan Command, 
 	return nil
 }
 
+// lcdBlankGrace bounds how long a known empty redraw can retain the last
+// published RUN state. Transport errors and other display pages are immediate.
+const lcdBlankGrace = 6 * time.Second
+
+func holdBlankLCD(snapshot zelio.MonitoringIO, interval, sinceRUN time.Duration) bool {
+	return snapshot.BlankDisplay && interval <= 2*time.Second && sinceRUN < lcdBlankGrace
+}
+
 func poll(ctx context.Context, plc Device, interval time.Duration, commands <-chan Command, writable map[string]Binding, armed bool, report func(context.Context, zelio.MonitoringIO) error, log *slog.Logger) (deviceErr, publishErr error) {
-	// The RUN I/O LCD returns an all-space frame during its periodic redraw.
-	// At normal polling rates, ignore up to two known redraw frames.
-	// At slower polling rates and on a different page, report immediately.
-	blankReads := 0
+	var lastRUN time.Time
 	reportStable := func(snapshot zelio.MonitoringIO) error {
-		if !snapshot.BlankDisplay || interval > 2*time.Second {
-			blankReads = 0
-			return report(ctx, snapshot)
+		now := time.Now()
+		if holdBlankLCD(snapshot, interval, now.Sub(lastRUN)) {
+			return nil
 		}
-		blankReads++
-		if blankReads >= 3 {
-			return report(ctx, snapshot)
+		lastRUN = time.Time{}
+		if snapshot.Available && snapshot.Mode == "RUN" {
+			lastRUN = now
 		}
-		return nil
+		return report(ctx, snapshot)
 	}
 	snapshot, err := plc.ReadMonitoringIO(ctx)
 	if err != nil {

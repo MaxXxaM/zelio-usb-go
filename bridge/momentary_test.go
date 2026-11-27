@@ -41,6 +41,11 @@ func TestActuateMomentaryUsesVerifiedGroupReadback(t *testing.T) {
 		writeErr, wantErr error
 	}{
 		{"group ON", []zelio.MonitoringIO{groupedIO(false, false, false), groupedIO(false, false, false), groupedIO(true, true, false)}, 1, 1, nil, nil},
+		{"blank LCD redraw", []zelio.MonitoringIO{
+			{BlankDisplay: true}, {BlankDisplay: true}, {BlankDisplay: true}, groupedIO(false, false, false),
+			groupedIO(false, false, false), groupedIO(true, true, false),
+		}, 1, 1, nil, nil},
+		{"blank then interlock", []zelio.MonitoringIO{{BlankDisplay: true}, groupedIO(false, false, true)}, 0, 0, nil, ErrInterlocked},
 		{"same state", []zelio.MonitoringIO{groupedIO(true, true, false)}, 0, 0, nil, nil},
 		{"mismatch", []zelio.MonitoringIO{groupedIO(true, false, false)}, 0, 0, nil, ErrUnavailable},
 		{"physical interlock", []zelio.MonitoringIO{groupedIO(false, false, true)}, 0, 0, nil, ErrInterlocked},
