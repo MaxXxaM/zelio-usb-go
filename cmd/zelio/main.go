@@ -31,6 +31,8 @@ const help = `Usage: zelio COMMAND [OPTIONS]
   monitor-io --serial SERIAL
   monitor-status --serial SERIAL
   monitor-raw --serial SERIAL
+  discover --serial SERIAL [--config-out FILE]
+           [--expect-program SHA256 --verified-signal ID]
   read-sl --serial SERIAL --word 25 [--count 1]
   validate --config FILE
   serve --config FILE
@@ -78,6 +80,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return nil
 	}
 	switch command {
+	case "discover":
+		return discover(ctx, fs, parse, out)
 	case "validate", "serve":
 		path := fs.String("config", "config.json", "configuration file")
 		if err := parse(); err != nil {
@@ -110,7 +114,16 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 					options.MomentarySignals = append(options.MomentarySignals, binding.SignalID)
 				}
 			}
-			return client(wire, options)
+			c, err := client(wire, options)
+			if err != nil {
+				return nil, err
+			}
+			if cfg.FBDSHA256 != "" {
+				if err := verifyFBDProgram(ctx, c, cfg.FBDSHA256); err != nil {
+					return nil, errors.Join(err, c.Close())
+				}
+			}
+			return c, nil
 		}
 		return mqttbridge.Run(ctx, cfg, open, slog.Default())
 	case "encode-sl-write":
