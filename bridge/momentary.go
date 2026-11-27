@@ -8,6 +8,8 @@ import (
 	zelio "github.com/MaxXxaM/zelio-usb-go"
 )
 
+const momentaryReadInterval = 150 * time.Millisecond
+
 var ErrInterlocked = errors.New("a configured physical interlock is active or unreadable")
 
 // MomentaryDevice is implemented by the USB client with momentary signals
@@ -54,6 +56,7 @@ func ActuateMomentary(ctx context.Context, plc MomentaryDevice, b Binding, want 
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
+	redrawDeadline := time.Now().Add(lcdBlankGrace)
 	for {
 		snapshot, err = plc.ReadMonitoringIO(ctx)
 		if err != nil {
@@ -62,25 +65,28 @@ func ActuateMomentary(ctx context.Context, plc MomentaryDevice, b Binding, want 
 		if current, available := b.Lookup(snapshot); available && current == want {
 			return snapshot, nil
 		}
-		if !time.Now().Before(deadline) {
+		expiry := deadline
+		if snapshot.BlankDisplay {
+			expiry = redrawDeadline
+		}
+		if !time.Now().Before(expiry) {
 			return snapshot, ErrUnconfirmed
 		}
-		if err := wait(ctx, 30*time.Millisecond); err != nil {
+		if err := wait(ctx, momentaryReadInterval); err != nil {
 			return snapshot, errors.Join(ErrUnconfirmed, err)
 		}
 	}
 }
 
 func readMomentaryState(ctx context.Context, plc MomentaryDevice, b Binding) (zelio.MonitoringIO, bool, error) {
-	var snapshot zelio.MonitoringIO
-	for try := 0; try < 3; try++ {
-		state, err := plc.ReadMonitoringIO(ctx)
+	deadline := time.Now().Add(lcdBlankGrace)
+	for {
+		snapshot, err := plc.ReadMonitoringIO(ctx)
 		if err != nil {
 			return zelio.MonitoringIO{}, false, err
 		}
-		snapshot = state
-		if !snapshot.Available {
-			if err := wait(ctx, 30*time.Millisecond); err != nil {
+		if snapshot.BlankDisplay && time.Now().Before(deadline) {
+			if err := wait(ctx, momentaryReadInterval); err != nil {
 				return snapshot, false, err
 			}
 			continue
@@ -94,5 +100,4 @@ func readMomentaryState(ctx context.Context, plc MomentaryDevice, b Binding) (ze
 		}
 		return snapshot, current, nil
 	}
-	return snapshot, false, ErrUnavailable
 }

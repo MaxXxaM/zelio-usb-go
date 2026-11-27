@@ -71,6 +71,10 @@ the relay leaves RUN, or USB communication fails, the corresponding channels
 become unavailable. Q represents **logical** output state. Verifying voltage
 or load operation requires independent feedback.
 
+At polling intervals up to two seconds, a recognized blank LCD redraw retains
+the last RUN state within a six-second grace window. A momentary command waits
+for a fresh valid RUN snapshot before deciding whether to send an impulse.
+
 If an SR3 periodically loses readable I/O while the USB and MQTT connections
 remain up, try `zelio serve --config config.json --refresh-monitoring`. This
 adds two read-only Monitoring queries to each poll. Output state and command

@@ -171,7 +171,8 @@ func ParseMonitoringIO(frame []byte) (MonitoringIO, error) {
 		return MonitoringIO{}, err
 	}
 	result := MonitoringIO{}
-	if strings.Trim(string(data[:len(monitorInputLabels)]), " ") == "" &&
+	if strings.TrimSpace(string(data[27:32])) == "" &&
+		strings.Trim(string(data[:len(monitorInputLabels)]), " ") == "" &&
 		strings.Trim(string(data[54:54+len(monitorOutputLabels)]), " ") == "" {
 		result.BlankDisplay = true
 		return result, nil

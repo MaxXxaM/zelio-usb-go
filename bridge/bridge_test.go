@@ -43,11 +43,11 @@ func (p *fakePLC) ReadMonitoringIO(context.Context) (zelio.MonitoringIO, error) 
 	return state, nil
 }
 
-func TestPollKeepsStateAcrossOneBlankLCDFrame(t *testing.T) {
+func TestPollKeepsStateAcrossShortBlankLCDRedraw(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &fakePLC{reads: []zelio.MonitoringIO{runIO(false), {BlankDisplay: true}, runIO(false), runIO(false)}}
+	p := &fakePLC{reads: []zelio.MonitoringIO{runIO(false), {BlankDisplay: true}, {BlankDisplay: true}, {BlankDisplay: true}, runIO(false)}}
 	p.afterRead = func(n int) {
-		if n == 4 {
+		if n == 5 {
 			cancel()
 		}
 	}
@@ -57,27 +57,18 @@ func TestPollKeepsStateAcrossOneBlankLCDFrame(t *testing.T) {
 		return nil
 	}
 	deviceErr, publishErr := poll(ctx, p, time.Millisecond, nil, nil, false, report, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if deviceErr != nil || publishErr != nil || !reflect.DeepEqual(got, []bool{true, true, true}) {
+	if deviceErr != nil || publishErr != nil || !reflect.DeepEqual(got, []bool{true, true}) {
 		t.Fatalf("reports %v, device error %v, publish error %v", got, deviceErr, publishErr)
 	}
 }
 
-func TestPollReportsPersistentBlankLCDFrames(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	p := &fakePLC{reads: []zelio.MonitoringIO{runIO(false), {BlankDisplay: true}, {BlankDisplay: true}, {BlankDisplay: true}}}
-	p.afterRead = func(n int) {
-		if n == 4 {
-			cancel()
-		}
+func TestDoesNotHoldBlankLCDAfterGrace(t *testing.T) {
+	blank := zelio.MonitoringIO{BlankDisplay: true}
+	if holdBlankLCD(blank, time.Second, lcdBlankGrace) {
+		t.Fatal("blank LCD exceeded the grace period")
 	}
-	var got []bool
-	report := func(_ context.Context, io zelio.MonitoringIO) error {
-		got = append(got, io.Available)
-		return nil
-	}
-	deviceErr, publishErr := poll(ctx, p, time.Millisecond, nil, nil, false, report, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if deviceErr != nil || publishErr != nil || !reflect.DeepEqual(got, []bool{true, false}) {
-		t.Fatalf("reports %v, device error %v, publish error %v", got, deviceErr, publishErr)
+	if holdBlankLCD(blank, 3*time.Second, time.Second) {
+		t.Fatal("slow poll must report unavailable immediately")
 	}
 }
 

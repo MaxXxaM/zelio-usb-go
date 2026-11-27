@@ -87,6 +87,19 @@ func TestMonitoringDisplayBlankIsUnknown(t *testing.T) {
 	}
 }
 
+func TestMonitoringStopWithEmptyIOIsNotBlank(t *testing.T) {
+	data := make([]byte, 78)
+	for i := range data {
+		data[i] = ' '
+	}
+	copy(data[27:], "STOP")
+	frame := monitoringEncode(append([]byte{1, 3, 78}, data...))
+	state, err := ParseMonitoringIO(frame)
+	if err != nil || state.Available || state.BlankDisplay {
+		t.Fatalf("STOP with empty I/O must be reported immediately: %+v %v", state, err)
+	}
+}
+
 func TestMonitoringClientReadAndWriteGuards(t *testing.T) {
 	w := &fakeWire{replies: [][]byte{syntheticIO(true), []byte(":0110000079001E58\r\n")}}
 	c := newTestClient(t, w, true)
