@@ -14,7 +14,9 @@ The CLI provides USB and Monitoring diagnostics.
 
 Discover the loaded FBD program and generate a Home Assistant MQTT draft over
 SR2USB01 with `zelio discover`. See the [English guide](docs/discover.md)
-or the [Russian guide](docs/discover.ru.md).
+or the [Russian guide](docs/discover.ru.md). For two controllers and a shared
+all-off scene, see [English](docs/two-relay-home-assistant.md) or
+[Russian](docs/two-relay-home-assistant.ru.md).
 
 ## Quick start
 
