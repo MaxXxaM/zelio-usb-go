@@ -71,6 +71,11 @@ the relay leaves RUN, or USB communication fails, the corresponding channels
 become unavailable. Q represents **logical** output state. Verifying voltage
 or load operation requires independent feedback.
 
+If an SR3 periodically loses readable I/O while the USB and MQTT connections
+remain up, try `zelio serve --config config.json --refresh-monitoring`. This
+adds two read-only Monitoring queries to each poll. Output state and command
+confirmation still require a valid RUN I/O response.
+
 Run one instance per PLC and cable, each with a unique device ID. See
 [installation and troubleshooting](docs/install.md) for Linux systemd,
 macOS setup, and how to remove retired MQTT entities.
@@ -81,6 +86,8 @@ Use a verified FBD command link to switch a single output or a synchronized
 group while retaining the PLC's local control logic. The bridge checks the
 Monitoring status when a state change is needed, initializes it if required
 and issues at most one impulse. RUN I/O readback confirms the result.
+An MQTT command can wait up to 200 ms for a short poll to finish within the
+active session. An expired command is discarded.
 
 The [mapping guide](docs/momentary-control.md) walks through USBPcap
 recording, verification on physical loads, configuration and Home Assistant

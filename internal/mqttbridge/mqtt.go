@@ -23,7 +23,10 @@ import (
 	"github.com/eclipse/paho.golang/paho"
 )
 
-const packetTimeout = 4 * time.Second
+const (
+	packetTimeout         = 4 * time.Second
+	commandHandoffTimeout = 200 * time.Millisecond
+)
 
 type broker struct {
 	address string
@@ -111,6 +114,24 @@ func decodeCommand(p *paho.Publish, topics map[string]string) (bridge.Command, b
 	return bridge.Command{ID: id, On: value == "ON"}, true
 }
 
+// handoffCommand lets a short poll finish without saving the command for a
+// later session. The receiver must accept it before the deadline.
+func handoffCommand(ctx context.Context, commands chan<- bridge.Command, cmd bridge.Command) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	timer := time.NewTimer(commandHandoffTimeout)
+	defer timer.Stop()
+	select {
+	case commands <- cmd:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return false
+	}
+}
+
 // Run starts a new clean MQTT session after each failure. The bridge's USB
 // session and command receiver are scoped to that connection.
 func Run(ctx context.Context, cfg config.File, open bridge.Open, log *slog.Logger) error {
@@ -176,9 +197,7 @@ func session(parent context.Context, b broker, cfg config.File, open bridge.Open
 				if !accepted || ctx.Err() != nil {
 					return false, nil
 				}
-				select {
-				case commands <- cmd:
-				default:
+				if !handoffCommand(ctx, commands, cmd) {
 					log.Warn("dropping MQTT command while PLC is busy or unavailable", "channel", cmd.ID)
 				}
 				return true, nil

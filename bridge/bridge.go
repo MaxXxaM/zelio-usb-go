@@ -180,7 +180,7 @@ func ActuateQ1(ctx context.Context, plc Device, kind zelio.MonitorForceKind, on 
 // Run polls and, when a baseline exists, accepts commands for explicitly
 // writable bindings. After a transport error it closes the device, reports
 // unavailability, and opens a read-only session. It never resubmits a write.
-// Producers should use a nonblocking send on an unbuffered commands channel,
+// Producers should use an unbuffered commands channel with a bounded send,
 // so commands have no lifetime beyond the session that accepts them.
 func Run(ctx context.Context, cfg Settings, open Open, commands <-chan Command, publish Publish, log *slog.Logger) error {
 	if err := ValidateBindings(cfg.Bindings); err != nil {

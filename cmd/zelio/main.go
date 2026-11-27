@@ -35,7 +35,7 @@ const help = `Usage: zelio COMMAND [OPTIONS]
            [--expect-program SHA256 --verified-signal ID]
   read-sl --serial SERIAL --word 25 [--count 1]
   validate --config FILE
-  serve --config FILE
+  serve --config FILE [--refresh-monitoring]
   force-q1 --serial SERIAL --state ON|OFF --confirm-mapping --apply
   release-q1 --serial SERIAL --confirm-mapping --apply
   encode-monitor-force --id 0x2a --kind force --state ON
@@ -83,6 +83,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	case "discover":
 		return discover(ctx, fs, parse, out)
 	case "validate", "serve":
+		refresh := fs.Bool("refresh-monitoring", false, "poll FBD and status alongside the RUN display")
 		path := fs.String("config", "config.json", "configuration file")
 		if err := parse(); err != nil {
 			return err
@@ -122,6 +123,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 				if err := verifyFBDProgram(ctx, c, cfg.FBDSHA256); err != nil {
 					return nil, errors.Join(err, c.Close())
 				}
+			}
+			if *refresh {
+				return monitoringRefreshClient{Client: c}, nil
 			}
 			return c, nil
 		}
